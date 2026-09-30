@@ -1,13 +1,26 @@
-# 🏠 localias
+# 🏠 localias-v2
 
 ![Latest Version](https://badgers.space/badge/latest%20version/v3.0.0/blueviolet?corner_radius=m)
 ![Golang](https://badgers.space/badge/golang/1.21+/blue?corner_radius=m)
 
-Localias is a tool for developers to securely manage local aliases for development servers.
+**localias-v2** is a derived fork of [peterldowns/localias](https://github.com/peterldowns/localias) (MIT).
+It is a tool for developers to securely manage local aliases for development servers,
+extended with the routing features the upstream does not support:
 
-Use Localias to redirect `https://server.test` &rarr; `http://localhost:3000` in your browser and on your command line. 
+- **Wildcard subdomain aliases** — `*.pelog.localhost` routes every one-label
+  subdomain of a zone to one upstream.
+- **Path-split routing** — one host, multiple upstreams selected by request
+  path (globs and regular expressions), with Traefik-style longest-path
+  priority.
+- **Build fix for modern Go toolchains** — builds with `GOEXPERIMENT=nojsonv2`
+  baked in (see the Justfile), working around a caddy/v2 v2.10.0 module-loader
+  panic on Go 1.24+ that breaks the upstream daemon entirely.
 
-<img width="464" alt="iTerm showing the most basic usage of Localias" src="https://github.com/peterldowns/localias/assets/824173/5b0121df-237e-47e7-92b8-d09017fcf95f.png">
+Everything else behaves like upstream Localias. Use it to redirect
+`https://server.test` &rarr; `http://localhost:3000` in your browser and on your
+command line.
+
+<img width="464" alt="iterm showing the most basic usage of localias" src="https://github.com/peterldowns/localias/assets/824173/5b0121df-237e-47e7-92b8-09017fcf95f.png">
 
 ### Major Features
 - Use convenient names, without ports, in your URLs
@@ -30,9 +43,6 @@ Use Localias to redirect `https://server.test` &rarr; `http://localhost:3000` in
 
 # Install
 
-This is a fork of [peterldowns/localias](https://github.com/peterldowns/localias)
-that adds **wildcard subdomain aliases** (e.g. `*.pelog.localhost`), which the
-upstream does not support.
 
 #### Golang:
 ```bash
@@ -311,30 +321,6 @@ Use "localias [command] --help" for more information about a command.
 
 # Errata
 
-## Why build this?
-
-Localias is the tool I've always wanted to use for local web development. After years of just visiting `localhost:8080`, I finally got around to looking for a solution, and came across [hotel](https://github.com/typicode/hotel) (unmaintained) and its fork [chalet](https://github.com/jeansaad/chalet) (maintained). These are wonderful projects that served as inspiration for Localias, but I think Localias is implemented in a better and more useful way.
-
-Finally, [my friend Justin wanted this to exist, too](https://twitter.com/jmduke/status/1628034461605539840?s=20):
-
-> I swear there's a tool that lets me do:
-> 
-> localhost:8000 → application.local  
-> localhost:3000 → marketing.local  
-> localhost:3002 → docs.local  
-> 
-> But I can't for the life of me remember the name of it. Does anyone know what I'm talking about?
-
-## Why not hotel/chalet?
-Localias is designed to replace alternative tools like [hotel](https://github.com/typicode/hotel)/[chalet](https://github.com/jeansaad/chalet). Hotel is no longer maintained, and Chalet is a fork of Hotel with basically the same features. I think Localias compares favorably:
-
-  - Localias is a single binary. Hotel requires a working NodeJS runtime.
-  - Localias works by modifying `/etc/hosts` (and the windows equivalent), which makes it easy to observe and debug. Hotel requires you to configure itself as a proxy in your browser or in your operating system.
-    - Aliases configured with Localias will also work in command-line scipts or requests sent by programs like `curl`. Hotel aliases only work in your browser.
-  - Localias allows you to create any number of aliases on different TLDs at the same time. Hotel only allows you to use one TLD.
-  - Localias will generate a root certificate and any necessary certificates for each alias, and install the root certificate in your system store so you do not see any warnings about invalid self-signed certificates. Hotel does not do any TLS signing.
-  - Localias will automatically discover configuration files committed to your git repository, which makes it easy to share a configuration with you development team. Hotel does not allow for shared configuration files.
-  - Localias does not attempt to do any kind of process management or launching, leaving that entirely up to you. Hotel attemps to run and manage processes for you.
 
 
 ## Domain conflicts and HSTS
@@ -378,13 +364,11 @@ that when you run localias inside WSL2 and have an alias configured for `fronten
 - programs in your Windows environment (like your browser) can access `frontend.local`
 - other devices on your network (like your phone's browser) **cannot access** `frontend.local`.
 
-This is frustrating, and I'm sorry that it doesn't work better by default. As of
-Windows 11, there seems to be a [Mirrored Mode Networking
+As of Windows 11, the [Mirrored Mode Networking
 option](https://learn.microsoft.com/en-us/windows/wsl/networking#mirrored-mode-networking)
-that claims "multicast support", but I'm not sure if this will fix the problem.
-Localias has [an open Github
-Issue](https://github.com/peterldowns/localias/issues/36) for this problem,
-please comment there if you have been able to make this work.
+advertises multicast support, which may restore mDNS in this setup.
+See also [upstream issue #36](https://github.com/peterldowns/localias/issues/36)
+for reports and workarounds.
 
 ## The Localias Root Certificate and System Trust Stores
 Localias's proxy server, Caddy, automatically generates certificates for any
@@ -508,8 +492,8 @@ is preventing another instance from starting. Common causes:
 - You have a proxy server like Caddy, Nginx, or Apache running
 - There is a bug in localias
 
-Please see the https://github.com/peterldowns/localias README for some
-diagnostics and ideas for how to debug this.
+See "Allow Localias to bind to ports 443/80 on Linux" above, and the
+diagnostics steps below.
 ```
 
 Or you've tried to start the daemon `localias start` but no daemon gets started:
