@@ -91,6 +91,8 @@ func setImpl(_ *cobra.Command, args []string) error {
 		Alias: alias,
 		Port:  port,
 	}, updated)
+
+	shared.ReloadIfRunning()
 	return nil
 }
 

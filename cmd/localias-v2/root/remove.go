@@ -31,6 +31,8 @@ func removeImpl(_ *cobra.Command, aliases []string) error {
 			color.New(color.FgWhite).Sprint(d.Port),
 		)
 	}
+
+	shared.ReloadIfRunning()
 	return nil
 }
 

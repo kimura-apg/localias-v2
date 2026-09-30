@@ -44,7 +44,11 @@ func importImpl(_ *cobra.Command, args []string) error {
 		}
 	}
 
-	return cfg.Save()
+	if err := cfg.Save(); err != nil {
+		return err
+	}
+	shared.ReloadIfRunning()
+	return nil
 }
 
 func init() {

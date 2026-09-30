@@ -29,6 +29,8 @@ func clearImpl(_ *cobra.Command, _ []string) error {
 			color.New(color.FgWhite).Sprint(d.Port),
 		)
 	}
+
+	shared.ReloadIfRunning()
 	return nil
 }
 
