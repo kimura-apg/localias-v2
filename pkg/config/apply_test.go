@@ -45,3 +45,18 @@ func TestApplySkipsWildcardEntries(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []string{"plain.localhost"}, hctl.set)
 }
+
+func TestApplyDedupesSharedHosts(t *testing.T) {
+	t.Parallel()
+	hctl := &fakeController{}
+	cfg := &Config{
+		Entries: []Entry{
+			{Alias: "pelog.localhost", Port: 3437},
+			{Alias: "pelog.localhost/api/*", Port: 8787},
+			{Alias: "pelog.localhost/graphql", Port: 8787},
+		},
+	}
+	err := Apply(hctl, cfg)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"pelog.localhost"}, hctl.set)
+}

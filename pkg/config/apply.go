@@ -14,11 +14,20 @@ func Apply(hctl hostctl.Controller, cfg *Config) error {
 	if err := hctl.Clear(); err != nil {
 		return err
 	}
+	seen := make(map[string]bool)
 	for _, entry := range cfg.Entries {
-		up, err := httpcaddyfile.ParseAddress(entry.Alias)
+		up, err := httpcaddyfile.ParseAddress(entry.Address())
 		if err != nil {
 			return err
 		}
+		// Several entries can share one host when it is path-split across
+		// multiple upstreams; /etc/hosts only cares about the host, and
+		// SetLocal is idempotent, but skip repeats to keep the wildcard
+		// warning below from firing once per path route.
+		if seen[up.Host] {
+			continue
+		}
+		seen[up.Host] = true
 		// /etc/hosts has no concept of a wildcard: a literal line like
 		// "127.0.0.1 *.example.localhost" never matches any real request
 		// and would only give a false sense that the alias is wired up.

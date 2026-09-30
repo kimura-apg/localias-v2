@@ -69,6 +69,25 @@ Notes:
   your own wildcard DNS setup (e.g. dnsmasq), since `/etc/hosts` cannot
   express wildcards.
 
+### Path-split routing
+
+Multiple aliases can share one host when they differ by path: the entry
+without a path is the fallback, and path routes are matched longest-first
+(so `/api/auth/*` wins over `/api/*`), mirroring Traefik's rule priorities:
+
+```bash
+localias set pelog.localhost 3437                    # web (fallback)
+localias set 'pelog.localhost/api/*' 8787            # api
+localias set 'pelog.localhost/~^/t/[^/]+/api/' 8787  # regex path routes use "~"
+```
+
+Path routes compose with wildcard hosts, too:
+
+```bash
+localias set '*.pelog.localhost' 3437
+localias set '*.pelog.localhost/api/*' 8787
+```
+
 # How does it work?
 
 Localias has two parts:

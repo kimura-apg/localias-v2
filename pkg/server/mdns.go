@@ -31,10 +31,17 @@ func (m multiservice) Records(q dns.Question) []dns.RR {
 // network will be able to visit these aliases.
 func newMDNSServer(entries []config.Entry) (*mdns.Server, error) {
 	var localEntries []config.Entry
+	seen := make(map[string]bool)
 	for _, entry := range entries {
-		if shouldServeMDNS(entry) {
-			localEntries = append(localEntries, entry)
+		if !shouldServeMDNS(entry) {
+			continue
 		}
+		// Path-split entries share one host; one mDNS record per host.
+		if seen[entry.Host()] {
+			continue
+		}
+		seen[entry.Host()] = true
+		localEntries = append(localEntries, entry)
 	}
 	if localEntries == nil {
 		return nil, nil
@@ -119,7 +126,7 @@ func shouldServeMDNS(entry config.Entry) bool {
 }
 
 func caddyPort(entry config.Entry) int {
-	a, _ := httpcaddyfile.ParseAddress(entry.Alias)
+	a, _ := httpcaddyfile.ParseAddress(entry.Address())
 	if a.Scheme == "" {
 		a.Scheme = "https"
 	}

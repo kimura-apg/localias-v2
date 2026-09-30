@@ -133,3 +133,62 @@ func TestValidateAliasRejectsInvalidWildcardPlacement(t *testing.T) {
 	assert.Error(t, ValidateAlias("*.*.test"))        // more than one wildcard
 	assert.Error(t, ValidateAlias("*.pelog.local"))   // mDNS can't serve wildcards
 }
+
+func TestPathSplitAccessors(t *testing.T) {
+	t.Parallel()
+	entry := Entry{Alias: "http://pelog.localhost:3437/api/*", Port: 8787}
+	assert.Equal(t, "http://pelog.localhost:3437", entry.Address())
+	assert.Equal(t, "/api/*", entry.PathSpec())
+	assert.Equal(t, "pelog.localhost", entry.Host())
+
+	plain := Entry{Alias: "pelog.localhost", Port: 3437}
+	assert.Equal(t, "pelog.localhost", plain.Address())
+	assert.Equal(t, "", plain.PathSpec())
+
+	regex := Entry{Alias: "shorui.localhost/~^/t/[^/]+/(graphql|api/|mcp)", Port: 8000}
+	assert.Equal(t, "shorui.localhost", regex.Address())
+	assert.Equal(t, "~^/t/[^/]+/(graphql|api/|mcp)", regex.PathSpec())
+}
+
+func TestValidateAliasPathSpecs(t *testing.T) {
+	t.Parallel()
+	assert.NoError(t, ValidateAlias("pelog.localhost/api/*"))
+	assert.NoError(t, ValidateAlias("http://pelog.localhost/graphql"))
+	assert.NoError(t, ValidateAlias("shorui.localhost/~^/t/[^/]+/(graphql|api/)"))
+	assert.Error(t, ValidateAlias("shorui.localhost/~^/t/[unclosed"))
+}
+
+func TestCaddyfileGroupsPathRoutesByHost(t *testing.T) {
+	t.Parallel()
+	cfg := Config{Entries: []Entry{
+		{Alias: "pelog.localhost", Port: 3437},
+		{Alias: "pelog.localhost/api/*", Port: 8787},
+		{Alias: "pelog.localhost/graphql", Port: 8787},
+	}}
+	out := cfg.Caddyfile()
+	// exactly one site block for the shared host
+	assert.Equal(t, 1, strings.Count(out, "pelog.localhost {"))
+	assert.True(t, strings.Contains(out, "handle /api/* {"))
+	assert.True(t, strings.Contains(out, "handle /graphql {"))
+	assert.True(t, strings.Contains(out, "handle {"))
+	// the fallback handle (no matcher) must come after the path handles
+	apiIdx := strings.Index(out, "handle /api/* {")
+	fallbackIdx := strings.Index(out, "\thandle {")
+	assert.True(t, fallbackIdx > apiIdx)
+}
+
+func TestCaddyfileOrdersLongerPathsFirst(t *testing.T) {
+	t.Parallel()
+	cfg := Config{Entries: []Entry{
+		{Alias: "shorui.localhost", Port: 9100},                 // web fallback
+		{Alias: "shorui.localhost/api/*", Port: 9200},           // api
+		{Alias: "shorui.localhost/api/auth/*", Port: 9300},      // id (must win)
+		{Alias: "shorui.localhost/~^/t/[^/]+/api/", Port: 9200}, // tenant regex
+	}}
+	out := cfg.Caddyfile()
+	idIdx := strings.Index(out, "handle /api/auth/* {")
+	apiIdx := strings.Index(out, "handle /api/* {")
+	assert.True(t, idIdx < apiIdx)
+	assert.True(t, strings.Contains(out, "@path0 path_regexp ^/t/[^/]+/api/"))
+	assert.True(t, strings.Contains(out, "handle @path0 {"))
+}

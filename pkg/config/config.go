@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/adrg/xdg"
@@ -129,10 +131,6 @@ func (Config) CaddyStatePath() string {
 
 func (c Config) Caddyfile() string {
 	path := c.CaddyStatePath()
-	allowedMap := ""
-	for _, entry := range c.Entries {
-		allowedMap += fmt.Sprintf("		%s 1\n", entry.Host())
-	}
 	global := fmt.Sprintf(strings.TrimSpace(`
 {
 	admin off
@@ -152,8 +150,8 @@ func (c Config) Caddyfile() string {
 }
 `), path)
 	blocks := []string{global}
-	for _, x := range c.Entries {
-		blocks = append(blocks, x.Caddyfile())
+	for _, group := range groupByAddress(c.Entries) {
+		blocks = append(blocks, siteBlock(group))
 	}
 	// extra newline prevents "caddy fmt" warning in logs
 	return strings.Join(blocks, "\n") + "\n"
@@ -178,8 +176,48 @@ func (entry Entry) String() string {
 	return fmt.Sprintf("%s: %d", entry.Alias, entry.Port)
 }
 
+// splitAlias splits an alias into its address part (scheme://host[:port])
+// and optional path spec (everything from the first "/" after the host).
+// The path spec is either a Caddy-style glob path ("/api/*", "/graphql")
+// or, when it starts with "~", a regular expression applied to the request
+// path ("~^/t/[^/]+/(graphql|api/)").
+func splitAlias(alias string) (address, pathSpec string) {
+	rest := alias
+	if i := strings.Index(rest, "://"); i >= 0 {
+		rest = rest[i+3:]
+	}
+	if i := strings.Index(rest, "/"); i >= 0 {
+		spec := rest[i:]
+		// A regular-expression path is written "/~/pattern"; normalize it
+		// to "~/pattern" so PathSpec() always starts with either "/" (glob)
+		// or "~" (regex).
+		if strings.HasPrefix(spec, "/~") {
+			spec = spec[1:]
+		}
+		return alias[:len(alias)-len(rest)+i], spec
+	}
+	return alias, ""
+}
+
+// Address returns the alias without any path spec, e.g.
+// "http://pelog.localhost:3437/api/*" -> "http://pelog.localhost:3437".
+func (entry Entry) Address() string {
+	address, _ := splitAlias(entry.Alias)
+	return address
+}
+
+// PathSpec returns the path-matching part of the alias ("" if the entry is
+// a whole-host/fallback route), e.g. "pelog.localhost/api/*" -> "/api/*",
+// "pelog.localhost/~^/x" -> "~^/x".
+func (entry Entry) PathSpec() string {
+	_, pathSpec := splitAlias(entry.Alias)
+	return pathSpec
+}
+
+// Host returns just the hostname of the alias, without scheme, port, or
+// path spec.
 func (entry Entry) Host() string {
-	a, _ := httpcaddyfile.ParseAddress(entry.Alias)
+	a, _ := httpcaddyfile.ParseAddress(entry.Address())
 	return a.Host
 }
 
@@ -201,7 +239,8 @@ func (entry Entry) IsWildcard() bool {
 //   - A wildcard alias cannot be served over mDNS (".local"), because mDNS
 //     records are literal hostnames, not patterns.
 func ValidateAlias(alias string) error {
-	a, err := httpcaddyfile.ParseAddress(alias)
+	address, pathSpec := splitAlias(alias)
+	a, err := httpcaddyfile.ParseAddress(address)
 	if err != nil {
 		return fmt.Errorf("invalid alias %q: %w", alias, err)
 	}
@@ -225,12 +264,81 @@ func ValidateAlias(alias string) error {
 	if wildcards == 1 && strings.HasSuffix(a.Host, ".local") {
 		return fmt.Errorf("invalid alias %q: wildcard aliases are not supported under .local (mDNS cannot serve wildcard records)", alias)
 	}
+	if strings.HasPrefix(pathSpec, "~") {
+		if _, err := regexp.Compile(strings.TrimPrefix(pathSpec, "~")); err != nil {
+			return fmt.Errorf("invalid alias %q: invalid path regular expression: %w", alias, err)
+		}
+	} else if pathSpec != "" && !strings.HasPrefix(pathSpec, "/") {
+		return fmt.Errorf("invalid alias %q: path spec must start with \"/\" or \"~/\" for a regular expression", alias)
+	}
 	return nil
 }
 
-func (entry Entry) Caddyfile() string {
+// groupByAddress groups entries that share the same address (scheme, host,
+// and port) so they can be rendered as one Caddy site block whose request
+// paths are split across multiple upstreams. Group order and entry order
+// within a group follow the config file order.
+func groupByAddress(entries []Entry) [][]Entry {
+	var order []string
+	groups := make(map[string][]Entry)
+	for _, entry := range entries {
+		key := entry.Address()
+		if _, ok := groups[key]; !ok {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], entry)
+	}
+	var result [][]Entry
+	for _, key := range order {
+		result = append(result, groups[key])
+	}
+	return result
+}
+
+// siteBlock renders one Caddy site block for a group of entries that share
+// the same address. The entry without a path spec (if present) is the
+// fallback and is emitted last; path routes are emitted before it, sorted
+// by descending path-spec length so that more specific routes (e.g.
+// "/api/auth/*") win over shorter prefixes on the same path tree (e.g.
+// "/api/*"), mirroring Traefik's rule-priority behavior.
+func siteBlock(group []Entry) string {
+	address := group[0].Address()
+	var fallback *Entry
+	var routes []Entry
+	for i, entry := range group {
+		if entry.PathSpec() == "" {
+			fallback = &group[i]
+		} else {
+			routes = append(routes, entry)
+		}
+	}
+	sort.SliceStable(routes, func(i, j int) bool {
+		pi, pj := routes[i].PathSpec(), routes[j].PathSpec()
+		if len(pi) != len(pj) {
+			return len(pi) > len(pj)
+		}
+		return pi < pj
+	})
+
+	var body strings.Builder
+	matcher := 0
+	for _, route := range routes {
+		spec := route.PathSpec()
+		if strings.HasPrefix(spec, "~") {
+			// Named matcher for a regular-expression path route.
+			fmt.Fprintf(&body, "\t@path%d path_regexp %s\n", matcher, strings.TrimPrefix(spec, "~"))
+			fmt.Fprintf(&body, "\thandle @path%d {\n\t\treverse_proxy localhost:%d\n\t}\n", matcher, route.Port)
+			matcher++
+			continue
+		}
+		fmt.Fprintf(&body, "\thandle %s {\n\t\treverse_proxy localhost:%d\n\t}\n", spec, route.Port)
+	}
+	if fallback != nil {
+		fmt.Fprintf(&body, "\thandle {\n\t\treverse_proxy localhost:%d\n\t}\n", fallback.Port)
+	}
+
 	tls := "# tls disabled"
-	a, _ := httpcaddyfile.ParseAddress(entry.Alias)
+	a, _ := httpcaddyfile.ParseAddress(address)
 	// If no scheme is given, default to https.
 	if a.Scheme == "" {
 		a.Scheme = "https"
@@ -247,8 +355,14 @@ func (entry Entry) Caddyfile() string {
 	}
 	return fmt.Sprintf(strings.TrimSpace(`
 %s {
-	reverse_proxy localhost:%d
-	%s
+%s	%s
 }
-	`), entry.Alias, entry.Port, tls)
+	`), address, body.String(), tls)
+}
+
+// Caddyfile renders this single entry as a site block. Entries with a path
+// spec only make sense as part of a group; rendering one on its own still
+// works (it routes matching paths and 404s the rest).
+func (entry Entry) Caddyfile() string {
+	return siteBlock([]Entry{entry})
 }

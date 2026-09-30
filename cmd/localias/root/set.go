@@ -46,6 +46,14 @@ localias set --alias example.test --port 9001
 # Wildcard alias: route any subdomain of pelog.localhost to the same port
 # (quote it so your shell doesn't glob-expand the "*")
 localias set '*.pelog.localhost' 8787
+
+# Path-split routing: send some paths of a host to a different port.
+# Longest path wins; the entry without a path is the fallback.
+localias set pelog.localhost 3437
+localias set 'pelog.localhost/api/*' 8787
+localias set pelog.localhost/graphql 8787
+# Regular-expression paths use a "~" prefix:
+localias set 'shorui.localhost/~^/t/[^/]+/(graphql|api/)' 8787
 	`),
 	RunE: setImpl,
 }
