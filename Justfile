@@ -52,5 +52,5 @@ lint-nix:
 build:
   #!/usr/bin/env bash
   ldflags=$(./scripts/golang-ldflags.sh)
-  go build -ldflags "$ldflags" -o bin/localias ./cmd/localias
+  go build -ldflags "$ldflags" -o bin/localias ./cmd/localias-v2
 

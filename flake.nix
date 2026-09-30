@@ -47,11 +47,11 @@
             # Add any extra packages required to build the binaries should go here.
             buildInputs = [ ];
             ldflags = [
-              "-X github.com/kimura-apg/localias-v2/cmd/localias/shared.Version=${version}"
-              "-X github.com/kimura-apg/localias-v2/cmd/localias/shared.Commit=${commit}"
+              "-X github.com/kimura-apg/localias-v2/cmd/localias-v2/shared.Version=${version}"
+              "-X github.com/kimura-apg/localias-v2/cmd/localias-v2/shared.Commit=${commit}"
             ];
             modRoot = "./.";
-            subPackages = [ "cmd/localias" ];
+            subPackages = [ "cmd/localias-v2" ];
             doCheck = false;
           };
           default = localias;

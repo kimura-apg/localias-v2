@@ -6,8 +6,8 @@ import (
 
 	"github.com/fatih/color"
 
-	"github.com/kimura-apg/localias-v2/cmd/localias/root"
-	"github.com/kimura-apg/localias-v2/cmd/localias/shared"
+	"github.com/kimura-apg/localias-v2/cmd/localias-v2/root"
+	"github.com/kimura-apg/localias-v2/cmd/localias-v2/shared"
 )
 
 func main() {

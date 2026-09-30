@@ -37,16 +37,13 @@ upstream does not support.
 #### Golang:
 ```bash
 # run it
-go run github.com/kimura-apg/localias-v2/cmd/localias@latest --help
+go run github.com/kimura-apg/localias-v2/cmd/localias-v2@latest --help
 # install it
-go install github.com/kimura-apg/localias-v2/cmd/localias@latest
+go install github.com/kimura-apg/localias-v2/cmd/localias-v2@latest
 ```
 
-The binary is installed as `localias`. If you also use the upstream `localias`
-and want to keep both, rename one of them afterwards, e.g.:
-```bash
-mv "$(go env GOPATH)/bin/localias" "$(go env GOPATH)/bin/localias-v2"
-```
+The binary installs as **`localias-v2`** (named after `cmd/localias-v2`), so it
+coexists with the upstream `localias` if you have it.
 
 ### Wildcard aliases
 

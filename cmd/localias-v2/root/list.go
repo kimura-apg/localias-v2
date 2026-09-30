@@ -6,7 +6,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/kimura-apg/localias-v2/cmd/localias/shared"
+	"github.com/kimura-apg/localias-v2/cmd/localias-v2/shared"
 )
 
 var listCmd = &cobra.Command{ //nolint:gochecknoglobals
