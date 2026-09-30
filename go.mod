@@ -1,4 +1,4 @@
-module github.com/peterldowns/localias
+module github.com/kimura-apg/localias-v2
 
 go 1.24
 

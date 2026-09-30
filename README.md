@@ -30,34 +30,44 @@ Use Localias to redirect `https://server.test` &rarr; `http://localhost:3000` in
 
 # Install
 
-#### Homebrew:
-```bash
-# install it
-brew install peterldowns/tap/localias
-```
+This is a fork of [peterldowns/localias](https://github.com/peterldowns/localias)
+that adds **wildcard subdomain aliases** (e.g. `*.pelog.localhost`), which the
+upstream does not support.
 
 #### Golang:
 ```bash
 # run it
-go run github.com/peterldowns/localias/cmd/localias@latest --help
+go run github.com/kimura-apg/localias-v2/cmd/localias@latest --help
 # install it
-go install github.com/peterldowns/localias/cmd/localias@latest
+go install github.com/kimura-apg/localias-v2/cmd/localias@latest
 ```
 
-#### Nix (flakes):
+The binary is installed as `localias`. If you also use the upstream `localias`
+and want to keep both, rename one of them afterwards, e.g.:
 ```bash
-# run it
-nix run github:peterldowns/localias -- --help
-# install it
-nix profile install --refresh github:peterldowns/localias
+mv "$(go env GOPATH)/bin/localias" "$(go env GOPATH)/bin/localias-v2"
 ```
 
-#### Manually download binaries
-Visit [the latest Github release](https://github.com/peterldowns/localias/releases/latest) and pick the appropriate binary. Or, click one of the shortcuts here:
-- [darwin-amd64](https://github.com/peterldowns/localias/releases/latest/download/localias-darwin-amd64)
-- [darwin-arm64](https://github.com/peterldowns/localias/releases/latest/download/localias-darwin-arm64)
-- [linux-amd64](https://github.com/peterldowns/localias/releases/latest/download/localias-linux-amd64)
-- [linux-arm64](https://github.com/peterldowns/localias/releases/latest/download/localias-linux-arm64)
+### Wildcard aliases
+
+An alias whose host starts with `*.` matches exactly one label of subdomains,
+matching every `<anything>.domain` at that level (the same semantics as
+Caddy's wildcard host matching, since Localias is powered by Caddy):
+
+```bash
+# route any tenant subdomain of pelog.localhost to one local port
+localias set '*.pelog.localhost' 8787
+```
+
+Notes:
+- The wildcard must be a whole, leftmost label (`*.example.localhost` is OK;
+  `foo.*.localhost` and `*.*.localhost` are rejected).
+- Wildcard aliases cannot be combined with `.local` (mDNS answers with
+  literal hostnames, not patterns).
+- Wildcard aliases work best with `.localhost` domains, which your OS and
+  browser already resolve to 127.0.0.1 on their own; for other TLDs you need
+  your own wildcard DNS setup (e.g. dnsmasq), since `/etc/hosts` cannot
+  express wildcards.
 
 # How does it work?
 

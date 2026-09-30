@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/peterldowns/localias/cmd/localias/shared"
-	"github.com/peterldowns/localias/pkg/config"
+	"github.com/kimura-apg/localias-v2/cmd/localias/shared"
+	"github.com/kimura-apg/localias-v2/pkg/config"
 )
 
 var setFlags struct { //nolint:gochecknoglobals

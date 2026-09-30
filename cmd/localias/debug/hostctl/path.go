@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/peterldowns/localias/cmd/localias/shared"
-	"github.com/peterldowns/localias/pkg/hostctl"
+	"github.com/kimura-apg/localias-v2/cmd/localias/shared"
+	"github.com/kimura-apg/localias-v2/pkg/hostctl"
 )
 
 func pathImpl(_ *cobra.Command, _ []string) error {

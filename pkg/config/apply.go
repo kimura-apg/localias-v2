@@ -7,7 +7,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/fatih/color"
 
-	"github.com/peterldowns/localias/pkg/hostctl"
+	"github.com/kimura-apg/localias-v2/pkg/hostctl"
 )
 
 func Apply(hctl hostctl.Controller, cfg *Config) error {

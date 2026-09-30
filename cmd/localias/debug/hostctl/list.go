@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/peterldowns/localias/cmd/localias/shared"
+	"github.com/kimura-apg/localias-v2/cmd/localias/shared"
 )
 
 func listImpl(_ *cobra.Command, _ []string) error {

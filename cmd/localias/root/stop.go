@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/peterldowns/localias/pkg/daemon"
+	"github.com/kimura-apg/localias-v2/pkg/daemon"
 )
 
 var stopCmd = &cobra.Command{ //nolint:gochecknoglobals

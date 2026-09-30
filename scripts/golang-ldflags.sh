@@ -20,5 +20,5 @@ if [ -z "$COMMIT" ]; then
   COMMIT="$(git rev-parse --short HEAD || echo '<dev>')"
 fi
 
-package="github.com/peterldowns/localias/cmd/localias/shared"
+package="github.com/kimura-apg/localias-v2/cmd/localias/shared"
 echo "-X $package.Version=$VERSION -X $package.Commit=$COMMIT"

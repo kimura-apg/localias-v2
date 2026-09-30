@@ -65,7 +65,7 @@ is preventing another instance from starting. Common causes:
 - You have a proxy server like Caddy, Nginx, or Apache running
 - There is a bug in localias
 
-Please see the https://github.com/peterldowns/localias README for some
+Please see the https://github.com/kimura-apg/localias-v2 README for some
 diagnostics and ideas for how to debug this.
 `)
 }

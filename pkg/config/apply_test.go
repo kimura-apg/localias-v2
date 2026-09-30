@@ -5,7 +5,7 @@ import (
 
 	"github.com/peterldowns/testy/assert"
 
-	"github.com/peterldowns/localias/pkg/hostctl"
+	"github.com/kimura-apg/localias-v2/pkg/hostctl"
 )
 
 // fakeController is an in-memory hostctl.Controller for testing Apply

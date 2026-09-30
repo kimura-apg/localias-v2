@@ -3,7 +3,7 @@ package server
 import (
 	"testing"
 
-	"github.com/peterldowns/localias/pkg/config"
+	"github.com/kimura-apg/localias-v2/pkg/config"
 	"github.com/peterldowns/testy/check"
 )
 

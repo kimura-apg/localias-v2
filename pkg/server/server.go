@@ -13,7 +13,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/hashicorp/mdns"
 
-	"github.com/peterldowns/localias/pkg/config"
+	"github.com/kimura-apg/localias-v2/pkg/config"
 )
 
 func WaitForExitSignal() {

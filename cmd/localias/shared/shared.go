@@ -5,9 +5,9 @@ import (
 
 	"github.com/fatih/color"
 
-	"github.com/peterldowns/localias/pkg/config"
-	"github.com/peterldowns/localias/pkg/hostctl"
-	"github.com/peterldowns/localias/pkg/wsl"
+	"github.com/kimura-apg/localias-v2/pkg/config"
+	"github.com/kimura-apg/localias-v2/pkg/hostctl"
+	"github.com/kimura-apg/localias-v2/pkg/wsl"
 )
 
 // These will be set at build time with ldflags, see Justfile for how they're

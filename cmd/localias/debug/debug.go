@@ -3,8 +3,8 @@ package debug
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/peterldowns/localias/cmd/localias/debug/hostctl"
-	"github.com/peterldowns/localias/cmd/localias/shared"
+	"github.com/kimura-apg/localias-v2/cmd/localias/debug/hostctl"
+	"github.com/kimura-apg/localias-v2/cmd/localias/shared"
 )
 
 var Command = &cobra.Command{ //nolint:gochecknoglobals

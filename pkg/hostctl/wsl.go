@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/peterldowns/localias/pkg/wsl"
+	"github.com/kimura-apg/localias-v2/pkg/wsl"
 )
 
 type WSLController struct {

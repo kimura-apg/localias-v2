@@ -7,8 +7,8 @@ import (
 	"github.com/adrg/xdg"
 	godaemon "github.com/sevlyar/go-daemon"
 
-	"github.com/peterldowns/localias/pkg/config"
-	"github.com/peterldowns/localias/pkg/server"
+	"github.com/kimura-apg/localias-v2/pkg/config"
+	"github.com/kimura-apg/localias-v2/pkg/server"
 )
 
 // Start will fork a daemon process that loops until it receives

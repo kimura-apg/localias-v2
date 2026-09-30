@@ -166,7 +166,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/peterldowns/localias
+        - github.com/kimura-apg/localias-v2
   exclusions:
     generated: lax
     paths:

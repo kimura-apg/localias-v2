@@ -10,7 +10,7 @@ import (
 	"github.com/hashicorp/mdns"
 	"github.com/miekg/dns"
 
-	"github.com/peterldowns/localias/pkg/config"
+	"github.com/kimura-apg/localias-v2/pkg/config"
 )
 
 // multiservice implements the mdns.Zone interface, and will respond to dns

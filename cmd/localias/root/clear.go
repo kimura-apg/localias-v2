@@ -6,7 +6,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/peterldowns/localias/cmd/localias/shared"
+	"github.com/kimura-apg/localias-v2/cmd/localias/shared"
 )
 
 var clearCmd = &cobra.Command{ //nolint:gochecknoglobals
