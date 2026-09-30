@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/peterldowns/testy/assert"
@@ -98,4 +99,37 @@ func TestImport(t *testing.T) {
 		{Alias: "c", Port: 4},
 	}
 	assert.Equal(t, expected, cfg.Entries)
+}
+
+func TestWildcardEntryHostAndCaddyfile(t *testing.T) {
+	t.Parallel()
+	entry := Entry{Alias: "*.pelog.localhost", Port: 8787}
+	assert.Equal(t, "*.pelog.localhost", entry.Host())
+	assert.True(t, entry.IsWildcard())
+
+	caddyfile := entry.Caddyfile()
+	assert.True(t, strings.Contains(caddyfile, "*.pelog.localhost {"))
+	assert.True(t, strings.Contains(caddyfile, "reverse_proxy localhost:8787"))
+	assert.True(t, strings.Contains(caddyfile, "on_demand"))
+}
+
+func TestNonWildcardEntryIsNotWildcard(t *testing.T) {
+	t.Parallel()
+	entry := Entry{Alias: "pelog.localhost", Port: 8787}
+	assert.False(t, entry.IsWildcard())
+}
+
+func TestValidateAliasAcceptsLeftmostWildcard(t *testing.T) {
+	t.Parallel()
+	assert.NoError(t, ValidateAlias("*.pelog.localhost"))
+	assert.NoError(t, ValidateAlias("https://*.pelog.localhost"))
+	assert.NoError(t, ValidateAlias("plain.test"))
+}
+
+func TestValidateAliasRejectsInvalidWildcardPlacement(t *testing.T) {
+	t.Parallel()
+	assert.Error(t, ValidateAlias("foo.*.test"))     // not leftmost
+	assert.Error(t, ValidateAlias("foo*.test"))       // partial label
+	assert.Error(t, ValidateAlias("*.*.test"))        // more than one wildcard
+	assert.Error(t, ValidateAlias("*.pelog.local"))   // mDNS can't serve wildcards
 }

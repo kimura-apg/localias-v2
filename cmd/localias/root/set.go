@@ -42,6 +42,10 @@ localias set example.test 9002
 localias set example.test 9001
 localias set -a example.test -p 9001
 localias set --alias example.test --port 9001
+
+# Wildcard alias: route any subdomain of pelog.localhost to the same port
+# (quote it so your shell doesn't glob-expand the "*")
+localias set '*.pelog.localhost' 8787
 	`),
 	RunE: setImpl,
 }
@@ -60,6 +64,10 @@ func setImpl(_ *cobra.Command, args []string) error {
 			return fmt.Errorf("valid to parse port: %w", err)
 		}
 		port = int(x)
+	}
+
+	if err := config.ValidateAlias(alias); err != nil {
+		return err
 	}
 
 	cfg := shared.Config()

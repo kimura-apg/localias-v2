@@ -183,6 +183,51 @@ func (entry Entry) Host() string {
 	return a.Host
 }
 
+// IsWildcard reports whether the entry's host has a wildcard label, e.g.
+// "*.example.localhost". Caddy only supports a wildcard replacing exactly
+// one whole label (see ValidateAlias), so a simple substring check is
+// sufficient here.
+func (entry Entry) IsWildcard() bool {
+	return strings.Contains(entry.Host(), "*")
+}
+
+// ValidateAlias checks that an alias is syntactically valid for use with
+// Caddy, and if it contains a wildcard label enforces the constraints that
+// make the wildcard usable end-to-end by the rest of Localias:
+//
+//   - Caddy itself only supports a wildcard that replaces exactly one whole
+//     label, and only as the leftmost label of the host
+//     (https://caddyserver.com/docs/caddyfile/concepts).
+//   - A wildcard alias cannot be served over mDNS (".local"), because mDNS
+//     records are literal hostnames, not patterns.
+func ValidateAlias(alias string) error {
+	a, err := httpcaddyfile.ParseAddress(alias)
+	if err != nil {
+		return fmt.Errorf("invalid alias %q: %w", alias, err)
+	}
+	labels := strings.Split(a.Host, ".")
+	wildcards := 0
+	for i, label := range labels {
+		if !strings.Contains(label, "*") {
+			continue
+		}
+		if label != "*" {
+			return fmt.Errorf("invalid alias %q: a wildcard must occupy an entire label (e.g. \"*.example.localhost\"), got label %q", alias, label)
+		}
+		if i != 0 {
+			return fmt.Errorf("invalid alias %q: a wildcard must be the leftmost label", alias)
+		}
+		wildcards++
+	}
+	if wildcards > 1 {
+		return fmt.Errorf("invalid alias %q: only one wildcard label is supported", alias)
+	}
+	if wildcards == 1 && strings.HasSuffix(a.Host, ".local") {
+		return fmt.Errorf("invalid alias %q: wildcard aliases are not supported under .local (mDNS cannot serve wildcard records)", alias)
+	}
+	return nil
+}
+
 func (entry Entry) Caddyfile() string {
 	tls := "# tls disabled"
 	a, _ := httpcaddyfile.ParseAddress(entry.Alias)

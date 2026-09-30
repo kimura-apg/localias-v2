@@ -32,7 +32,7 @@ func (m multiservice) Records(q dns.Question) []dns.RR {
 func newMDNSServer(entries []config.Entry) (*mdns.Server, error) {
 	var localEntries []config.Entry
 	for _, entry := range entries {
-		if isLocal(entry) {
+		if shouldServeMDNS(entry) {
 			localEntries = append(localEntries, entry)
 		}
 	}
@@ -106,6 +106,16 @@ func newMDNSServer(entries []config.Entry) (*mdns.Server, error) {
 
 func isLocal(entry config.Entry) bool {
 	return strings.HasSuffix(entry.Host(), ".local")
+}
+
+// shouldServeMDNS reports whether an entry should get a mDNS record.
+// mDNS answers with literal hostnames, not patterns, so wildcard aliases
+// are excluded even if they end in ".local" -- ValidateAlias already
+// rejects that combination at `set` time, so this is defense-in-depth for
+// entries that reached here some other way (e.g. hand-edited config,
+// `import`).
+func shouldServeMDNS(entry config.Entry) bool {
+	return isLocal(entry) && !entry.IsWildcard()
 }
 
 func caddyPort(entry config.Entry) int {
