@@ -3,7 +3,7 @@ package root
 import (
 	"bufio"
 	"fmt"
-	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/spf13/cobra"
 
 	"github.com/kimura-apg/localias-v2/cmd/localias-v2/shared"
@@ -21,7 +22,7 @@ import (
 
 // timeAfter indirection kept tiny; exists so tests could stub it if needed.
 var timeAfter = time.After //nolint:gochecknoglobals
-var devFlags struct { //nolint:gochecknoglobals
+var devFlags struct {      //nolint:gochecknoglobals
 	Timeout *int
 }
 
@@ -29,17 +30,18 @@ var devCmd = &cobra.Command{ //nolint:gochecknoglobals
 	Use:   "dev <alias> -- <command> [args...]",
 	Short: "run a dev server and alias whatever port it listens on",
 	Long: strings.TrimSpace(`
-Starts <command> as a child process, watches its output until it prints a
-listening address (e.g. "localhost:3000", "0.0.0.0:5173", "port 8000"),
+Starts <command> as a child process under a pseudo-terminal (so it keeps
+its colors), watches its output until it prints a listening address
+(e.g. "localhost:3000", "http://192.168.1.8:8924", "port 8000"),
 registers <alias> -> that port, and keeps running until the child exits.
 When the child exits (or you Ctrl-C), the alias is removed again.
 
 The alias defaults to http:// (dev servers are plain HTTP); pass an explicit
-scheme (e.g. https://app.test) to override. The running daemon is reloaded
+scheme (e.g. https://app.test) to override. The daemon is (re)started
 automatically when the alias is added and removed.
 `),
 	Example: shared.Example(`
-# serve a vite/bun dev server at http://sawada.localhost
+# serve a vite/bun/nuxt dev server at http://sawada.localhost
 localias dev sawada.localhost -- bun run dev
 
 # https alias
@@ -59,6 +61,8 @@ var listenPatterns = []*regexp.Regexp{ //nolint:gochecknoglobals
 	regexp.MustCompile(`(?:\d{1,3}\.){3}\d{1,3}:(\d{2,5})`),
 	regexp.MustCompile(`port (\d{2,5})`),
 }
+
+var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`) //nolint:gochecknoglobals
 
 // FirstListenPort returns the first port number the given output line
 // advertises a listener on, or 0 if the line doesn't match.
@@ -108,24 +112,27 @@ func devImpl(_ *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Run the child with its stdout/stderr teed through a port scanner.
-	pr, pw := io.Pipe()
+	// Run the child under a pseudo-terminal so it sees a TTY and keeps its
+	// color output; we read the master side to detect the listening port.
+	// (A plain pipe makes isTTY false and dev servers drop their colors.)
 	child := exec.Command(cmdArgs[0], cmdArgs[1:]...)
-	child.Stdout = io.MultiWriter(os.Stdout, pw)
-	child.Stderr = io.MultiWriter(os.Stderr, pw)
-	child.Stdin = os.Stdin
-	if err := child.Start(); err != nil {
+	ptyFile, err := pty.StartWithSize(child, &pty.Winsize{Rows: 40, Cols: 160})
+	if err != nil {
 		return fmt.Errorf("failed to start %v: %w", cmdArgs, err)
 	}
+	defer ptyFile.Close() //nolint:errcheck
 
 	portCh := make(chan int, 1)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		scanner := bufio.NewScanner(pr)
+		scanner := bufio.NewScanner(ptyFile)
 		for scanner.Scan() {
-			line := scanner.Text()
+			// Pass the child's output through to the user's terminal
+			// (raw line — colors intact); strip ANSI only for matching.
+			fmt.Fprintln(os.Stdout, scanner.Text())
+			line := ansiPattern.ReplaceAllString(scanner.Text(), "")
 			// A port mentioned in an "already in use" warning is NOT the
 			// port this process is listening on (nuxt e.g. falls back to a
 			// random one right after) — never register it.
@@ -155,8 +162,9 @@ func devImpl(_ *cobra.Command, args []string) error {
 			return err
 		}
 		registered = true
-		fmt.Printf("[dev] %s -> 127.0.0.1:%d\n", alias, port)
+		fmt.Printf("[dev] alias registered: %s -> 127.0.0.1:%d\n", alias, port)
 		shared.ReloadIfRunning()
+		logReady(alias)
 	case err := <-waitCh:
 		_ = child.Process.Kill()
 		<-waitCh
@@ -180,7 +188,7 @@ func devImpl(_ *cobra.Command, args []string) error {
 			_ = child.Process.Signal(os.Interrupt)
 		}
 	}()
-	err := <-waitCh
+	err = <-waitCh
 	close(sigCh)
 
 	// Remove the alias again, best-effort.
@@ -190,16 +198,33 @@ func devImpl(_ *cobra.Command, args []string) error {
 		if err := cfg.Save(); err != nil {
 			fmt.Fprintf(os.Stderr, "[dev] warning: failed to remove alias: %v\n", err)
 		} else {
-			fmt.Printf("[dev] removed %s\n", alias)
+			fmt.Printf("[dev] alias removed: %s\n", alias)
 		}
 		shared.ReloadIfRunning()
 	}
-	pw.Close()
 	wg.Wait()
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+// logReady probes the alias through the local proxy so the user gets a
+// definitive "it works now" line (or an early warning that routing or the
+// upstream is not answering yet).
+func logReady(alias string) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, alias, nil)
+	if err != nil {
+		return
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("[dev] warning: could not reach %s yet (%v)\n", alias, err)
+		return
+	}
+	resp.Body.Close() //nolint:errcheck
+	fmt.Printf("[dev] ready: %s (upstream answered %s)\n", alias, resp.Status)
 }
 
 func init() {
