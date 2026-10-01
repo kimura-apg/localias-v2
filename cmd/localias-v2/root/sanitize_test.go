@@ -1,7 +1,6 @@
 package root
 
 import (
-	"bufio"
 	"strings"
 	"testing"
 
@@ -34,38 +33,52 @@ func TestSanitizeLogLine(t *testing.T) {
 	check.Equal(t, true, redraw)
 }
 
-func TestReadChunk(t *testing.T) {
+func TestTermBufferInPlaceRedraw(t *testing.T) {
 	t.Parallel()
-	// LF-terminated chunks are plain lines (append); CR/CRLF-terminated
-	// chunks are in-place progress redraws — the distinction keeps
-	// progress bars animating in one place instead of one line per stage.
-	r := bufio.NewReader(strings.NewReader("start\nbar 70%\rbar 88%\r\nfinal 98%\rdone\nplain\n"))
-	type want struct {
-		line   string
-		redraw bool
-	}
-	var got []want
-	for {
-		line, redraw, err := readChunk(r)
-		if err != nil {
-			break
+	// Regression (nuxt/webpackbar): the progress block spans two lines and
+	// is redrawn via CR + line-erase + cursor-up sequences with embedded
+	// newlines, interleaved with a plain LF WARN block. A real terminal
+	// shows ONE progress block updating in place and ONE warn; the buffer
+	// must reproduce exactly that instead of one line per update.
+	vt := newTermBuffer()
+	vt.Write([]byte("\r\x1b[2K\u25cf Client building (63%) 450/509 modules\n vue-loader \u203a TwoLineNavButton.vue\x1b[1A\x1b[1A"))
+	vt.Write([]byte("\r\x1b[2K\u25cf Client building (64%) 464/511 modules\n babel-loader \u203a history/index.js\x1b[1A\x1b[1A"))
+	vt.Write([]byte("\n WARN Browserslist: caniuse-lite is outdated.\n  npx update-browserslist-db@latest\n"))
+	vt.Write([]byte("\r\x1b[2K\u25cf Client building (65%) 489/545 modules\n node_modules/axios/lib/utils.js\x1b[1A\x1b[1A"))
+	out := vt.String()
+	lines := strings.Split(out, "\n")
+	count := func(sub string) int {
+		c := 0
+		for _, l := range lines {
+			if strings.Contains(l, sub) {
+				c++
+			}
 		}
-		got = append(got, want{line, redraw})
+		return c
 	}
-	expected := []want{
-		{"start", false},
-		{"bar 70%", true},
-		{"bar 88%", true},
-		{"final 98%", true},
-		{"done", false},
-		{"plain", false},
-	}
-	if len(got) != len(expected) {
-		t.Fatalf("chunk count: want %d, got %d (%v)", len(expected), len(got), got)
-	}
-	for i := range expected {
-		if got[i] != expected[i] {
-			t.Errorf("chunk %d: want %+v, got %+v", i, expected[i], got[i])
+	check.Equal(t, 0, count("63%"))
+	check.Equal(t, 1, count("64%")) // warn interleave scrolls; the 64% block stays, redraws continue below
+	check.Equal(t, 1, count("65%"))
+	check.Equal(t, 1, count("Browserslist"))
+
+	// Colors survive: SGR sequences are kept inline.
+	vt2 := newTermBuffer()
+	vt2.Write([]byte("\x1b[36mServer building\x1b[0m\n"))
+	check.Equal(t, "\x1b[36mServer building\x1b[0m\n", vt2.String())
+}
+
+func TestTermBufferDetectsPortAcrossCursorMerges(t *testing.T) {
+	t.Parallel()
+	// A progress redraw that ends with cursor-up (no CR) leaves the
+	// cursor mid-buffer; the next plain line merges into an earlier row.
+	// Port detection must scan enough tail lines to still find it.
+	detect := newTermBuffer()
+	detect.Write([]byte("start\n\r\x1b[2K\x1b[36mClient 63\x1b[0m\n mod\x1b[1A\x1b[1AListening on: http://127.0.0.1:18952/\n"))
+	found := 0
+	for _, tl := range detect.TailLines(8) {
+		if p := listenPortFromLine(tl); p > 0 {
+			found = p
 		}
 	}
+	check.Equal(t, 18952, found)
 }

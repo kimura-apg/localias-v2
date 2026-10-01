@@ -15,10 +15,11 @@ import (
 // output scrolls in a viewport, a fixed status bar always shows the
 // alias->port mapping, and keybindings are displayed inline.
 
-type logLineMsg struct {
-	line   string
-	redraw bool
-}
+// ptyBytesMsg carries a raw chunk of the wrapped process's output; the
+// model feeds it to its terminal-emulation buffer so multi-line progress
+// redraws (CR / line-erase / cursor-up across embedded newlines) update
+// in place exactly like a real terminal.
+type ptyBytesMsg []byte
 
 type statusMsg struct {
 	port   int
@@ -51,7 +52,7 @@ type devModel struct {
 	port      int
 	ready     string
 	logs      *viewport.Model
-	lines     []string
+	vt        *termBuffer
 	width     int
 	height    int
 	follow    bool
@@ -59,14 +60,13 @@ type devModel struct {
 	quitReq   *chan struct{}
 	quitOnce  *sync.Once
 	toast     string
-	lastLive  bool
 }
 
 func newDevModel(alias string, cmdArgs []string, quitReq *chan struct{}) devModel {
 	vp := viewport.New(80, 20)
 	vp.SetContent("")
-	return devModel{alias: alias, cmdArgs: cmdArgs, logs: &vp, follow: true,
-		quitReq: quitReq, quitOnce: &sync.Once{}}
+	return devModel{alias: alias, cmdArgs: cmdArgs, logs: &vp, vt: newTermBuffer(),
+		follow: true, quitReq: quitReq, quitOnce: &sync.Once{}}
 }
 
 func (m devModel) url() string {
@@ -88,27 +88,9 @@ func (m devModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logs.Width = msg.Width
 		m.logs.Height = maxInt(3, msg.Height-4) // log pane + gap + bordered status + keys
 		return m, nil
-	case logLineMsg:
-		clean, redraw := sanitizeLogLine(msg.line)
-		if clean == "" && redraw {
-			return m, nil
-		}
-		switch {
-		case redraw && m.lastLive && len(m.lines) > 0:
-			// In-place progress redraw: update the live line only, so
-			// bars animate in one place like a real terminal instead of
-			// appending one line per stage.
-			if m.lines[len(m.lines)-1] != clean {
-				m.lines[len(m.lines)-1] = clean
-			}
-		default:
-			m.lines = append(m.lines, clean)
-		}
-		m.lastLive = redraw
-		if len(m.lines) > maxLogLines {
-			m.lines = m.lines[len(m.lines)-maxLogLines:]
-		}
-		m.logs.SetContent(strings.Join(m.lines, "\n"))
+	case ptyBytesMsg:
+		m.vt.Write(msg)
+		m.logs.SetContent(m.vt.String())
 		if m.follow {
 			m.logs.GotoBottom()
 		}

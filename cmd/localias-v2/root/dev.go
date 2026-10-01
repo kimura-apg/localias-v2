@@ -163,30 +163,35 @@ func devImpl(_ *cobra.Command, args []string) error {
 	}
 
 	go func() {
-		// Split on bare CR as well as LF: dev-server progress bars
-		// (webpack/nuxt) redraw one line with carriage returns, and a
-		// plain LF scanner would swallow every update until the bar
-		// finishes. The redraw flag tells the TUI to replace the last
-		// line instead of appending.
+		// Feed raw bytes to the TUI's terminal emulator (or pass them
+		// straight through in non-interactive mode) and mirror them into
+		// a detection buffer whose recent lines are scanned for the
+		// listening port.
+		detect := newTermBuffer()
 		reader := bufio.NewReader(ptyFile)
+		buf := make([]byte, 8192)
 		for {
-			raw, redraw, rerr := readChunk(reader)
+			n, rerr := reader.Read(buf)
+			if n > 0 {
+				raw := make([]byte, n)
+				copy(raw, buf[:n])
+				if program != nil {
+					program.Send(ptyBytesMsg(raw))
+				} else {
+					_, _ = os.Stdout.Write(raw)
+				}
+				detect.Write(raw)
+				for _, tl := range detect.TailLines(8) {
+					if port := listenPortFromLine(tl); port > 0 {
+						select {
+						case portCh <- port:
+						default:
+						}
+					}
+				}
+			}
 			if rerr != nil {
 				break // EOF
-			}
-			if program != nil {
-				program.Send(logLineMsg{line: raw, redraw: redraw})
-			} else if redraw {
-				// Let a real terminal do the in-place overwrite.
-				fmt.Fprintf(os.Stdout, "\r%s\n", raw)
-			} else {
-				fmt.Fprintln(os.Stdout, raw)
-			}
-			if port := listenPortFromLine(raw); port > 0 {
-				select {
-				case portCh <- port:
-				default:
-				}
 			}
 		}
 	}()
