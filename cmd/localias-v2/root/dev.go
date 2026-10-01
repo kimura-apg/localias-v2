@@ -73,13 +73,14 @@ func FirstListenPort(line string) int {
 
 func devImpl(_ *cobra.Command, args []string) error {
 	// Split on the first "--" separator: left = alias, right = command.
+	// (pflag may strip the separator itself when parsing flags, so also
+	// accept the flag-terminator form Args() already split.)
 	alias := args[0]
 	cmdArgs := args[1:]
 	for i, a := range args {
 		if a == "--" {
-			alias = args[0]
 			if i == 0 {
-				return fmt.Errorf("invalid arguments: expected <alias> before \"--\"")
+				return fmt.Errorf("invalid arguments: expected <alias> before \"--\" (usage: localias dev <alias> -- <command>)")
 			}
 			cmdArgs = args[i+1:]
 			break
@@ -87,6 +88,15 @@ func devImpl(_ *cobra.Command, args []string) error {
 	}
 	if len(cmdArgs) == 0 {
 		return fmt.Errorf("invalid arguments: expected <alias> -- <command>")
+	}
+	// A missing alias usually surfaces as the command's name in the alias
+	// slot (e.g. "dev -- yarn dev" -> alias "yarn"): aliases always contain
+	// a dot (host.tld), so catch that with a targeted hint.
+	if !strings.Contains(alias, ".") {
+		return fmt.Errorf(
+			"invalid alias %q: did you forget the alias before \"--\"? usage: localias dev <alias> -- <command>",
+			alias,
+		)
 	}
 	if !strings.Contains(alias, "://") {
 		alias = "http://" + alias
