@@ -12,9 +12,9 @@ extended with the routing features the upstream does not support:
 - **Path-split routing** — one host, multiple upstreams selected by request
   path (globs and regular expressions), with Traefik-style longest-path
   priority.
-- **Build fix for modern Go toolchains** — builds with `GOEXPERIMENT=nojsonv2`
-  baked in (see the Justfile), working around a caddy/v2 v2.10.0 module-loader
-  panic on Go 1.24+ that breaks the upstream daemon entirely.
+- **Go 1.24+ toolchain fix** — upgrades caddy/v2 to v2.11.6, fixing the upstream
+  module-loader panic under the jsonv2 GOEXPERIMENT (upstream localias pins
+  caddy v2.10.0, which crashes on modern Go toolchains).
 
 Everything else behaves like upstream Localias. Use it to redirect
 `https://server.test` &rarr; `http://localhost:3000` in your browser and on your
