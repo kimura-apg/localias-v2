@@ -23,10 +23,11 @@ var Quiet bool //nolint:gochecknoglobals
 // editing /etc/hosts needs sudo and there is no TTY), it warns instead of
 // failing the command — the config on disk is already updated and the next
 // successful start will apply it.
-func ReloadIfRunning() {
+func ReloadIfRunning() string {
 	running, err := daemon.Status()
+
 	if err != nil {
-		return
+		return ""
 	}
 	// Restart via a subprocess. Calling daemon.Start in-process is
 	// dangerous for arbitrary commands: go-daemon re-execs THIS binary
@@ -40,19 +41,24 @@ func ReloadIfRunning() {
 	cmd := exec.Command(os.Args[0], args...)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
+
 	if err := cmd.Run(); err != nil {
 		warn := color.New(color.FgYellow, color.Italic)
 		fmt.Fprintln(os.Stderr, warn.Sprintf(
 			"warning: config saved but the daemon could not be (re)started (%v); run `localias start` to apply",
 			err,
 		))
-		return
+		return ""
+	}
+
+	if running != nil {
+		if !Quiet {
+			fmt.Println("[daemon reloaded]")
+		}
+		return "daemon reloaded"
 	}
 	if !Quiet {
-		if running != nil {
-			fmt.Println("[daemon reloaded]")
-		} else {
-			fmt.Println("[daemon started]")
-		}
+		fmt.Println("[daemon started]")
 	}
+	return "daemon started"
 }

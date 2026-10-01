@@ -34,15 +34,38 @@ func TestSanitizeLogLine(t *testing.T) {
 	check.Equal(t, true, redraw)
 }
 
-func TestSplitOnCROrLF(t *testing.T) {
+func TestReadChunk(t *testing.T) {
 	t.Parallel()
-	// LF, CR and CRLF all terminate tokens; CR-terminated progress
-	// updates must not wait for an LF that never comes.
-	sc := bufio.NewScanner(strings.NewReader("a\nb\rc\r\nd"))
-	sc.Split(splitOnCROrLF)
-	var tokens []string
-	for sc.Scan() {
-		tokens = append(tokens, sc.Text())
+	// LF-terminated chunks are plain lines (append); CR/CRLF-terminated
+	// chunks are in-place progress redraws — the distinction keeps
+	// progress bars animating in one place instead of one line per stage.
+	r := bufio.NewReader(strings.NewReader("start\nbar 70%\rbar 88%\r\nfinal 98%\rdone\nplain\n"))
+	type want struct {
+		line   string
+		redraw bool
 	}
-	check.Equal(t, []string{"a", "b", "c", "d"}, tokens)
+	var got []want
+	for {
+		line, redraw, err := readChunk(r)
+		if err != nil {
+			break
+		}
+		got = append(got, want{line, redraw})
+	}
+	expected := []want{
+		{"start", false},
+		{"bar 70%", true},
+		{"bar 88%", true},
+		{"final 98%", true},
+		{"done", false},
+		{"plain", false},
+	}
+	if len(got) != len(expected) {
+		t.Fatalf("chunk count: want %d, got %d (%v)", len(expected), len(got), got)
+	}
+	for i := range expected {
+		if got[i] != expected[i] {
+			t.Errorf("chunk %d: want %+v, got %+v", i, expected[i], got[i])
+		}
+	}
 }

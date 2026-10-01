@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -25,6 +26,10 @@ type statusMsg struct {
 }
 
 type childExitMsg struct{ err error }
+
+type noteMsg string
+
+type clearNoteMsg struct{}
 
 const maxLogLines = 2000 //nolint:gochecknoglobals
 
@@ -53,6 +58,8 @@ type devModel struct {
 	childGone bool
 	quitReq   *chan struct{}
 	quitOnce  *sync.Once
+	toast     string
+	lastLive  bool
 }
 
 func newDevModel(alias string, cmdArgs []string, quitReq *chan struct{}) devModel {
@@ -79,7 +86,7 @@ func (m devModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.logs.Width = msg.Width
-		m.logs.Height = maxInt(3, msg.Height-2) // leave room for the status bar
+		m.logs.Height = maxInt(3, msg.Height-4) // log pane + gap + bordered status + keys
 		return m, nil
 	case logLineMsg:
 		clean, redraw := sanitizeLogLine(msg.line)
@@ -87,15 +94,17 @@ func (m devModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		switch {
-		case redraw && len(m.lines) > 0:
-			// Progress redraw: replace the previous line instead of
-			// appending (prevents webpack/nuxt progress flooding).
+		case redraw && m.lastLive && len(m.lines) > 0:
+			// In-place progress redraw: update the live line only, so
+			// bars animate in one place like a real terminal instead of
+			// appending one line per stage.
 			if m.lines[len(m.lines)-1] != clean {
 				m.lines[len(m.lines)-1] = clean
 			}
 		default:
 			m.lines = append(m.lines, clean)
 		}
+		m.lastLive = redraw
 		if len(m.lines) > maxLogLines {
 			m.lines = m.lines[len(m.lines)-maxLogLines:]
 		}
@@ -147,6 +156,12 @@ func (m devModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logs.GotoBottom()
 		}
 		return m, nil
+	case noteMsg:
+		m.toast = string(msg)
+		return m, tea.Tick(4*time.Second, func(time.Time) tea.Msg { return clearNoteMsg{} })
+	case clearNoteMsg:
+		m.toast = ""
+		return m, nil
 	}
 	return m, nil
 }
@@ -167,8 +182,11 @@ func (m devModel) View() string {
 		readyPart = "  " + tuiStyleReady.Render(m.ready)
 	}
 	keys := tuiStyleKey.Render("o open · c copy url · ↑↓ scroll · q quit")
+	if m.toast != "" {
+		keys = tuiStyleReady.Render(m.toast) + "  ·  " + keys
+	}
 	bar := tuiStyleStatus.Render(mapping+readyPart) + "\n" + keys
-	return m.logs.View() + "\n" + bar
+	return m.logs.View() + "\n\n" + bar
 }
 
 func maxInt(a, b int) int {
