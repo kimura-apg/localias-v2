@@ -14,7 +14,10 @@ import (
 // output scrolls in a viewport, a fixed status bar always shows the
 // alias->port mapping, and keybindings are displayed inline.
 
-type logLineMsg string
+type logLineMsg struct {
+	line   string
+	redraw bool
+}
 
 type statusMsg struct {
 	port   int
@@ -79,7 +82,20 @@ func (m devModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logs.Height = maxInt(3, msg.Height-2) // leave room for the status bar
 		return m, nil
 	case logLineMsg:
-		m.lines = append(m.lines, string(msg))
+		clean, redraw := sanitizeLogLine(msg.line)
+		if clean == "" && redraw {
+			return m, nil
+		}
+		switch {
+		case redraw && len(m.lines) > 0:
+			// Progress redraw: replace the previous line instead of
+			// appending (prevents webpack/nuxt progress flooding).
+			if m.lines[len(m.lines)-1] != clean {
+				m.lines[len(m.lines)-1] = clean
+			}
+		default:
+			m.lines = append(m.lines, clean)
+		}
 		if len(m.lines) > maxLogLines {
 			m.lines = m.lines[len(m.lines)-maxLogLines:]
 		}

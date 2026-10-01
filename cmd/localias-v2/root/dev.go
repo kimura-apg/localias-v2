@@ -149,25 +149,40 @@ func devImpl(_ *cobra.Command, args []string) error {
 
 	portCh := make(chan int, 1)
 	interactive := isTerminal(os.Stdout)
-
+	if interactive {
+		defer func() { shared.Quiet = false }()
+	}
 	// Lines feed either the TUI (via program.Send) or plain stdout.
 	var program *tea.Program
 	quitReq := make(chan struct{})
 	if interactive {
+		shared.Quiet = true
 		program = tea.NewProgram(newDevModel(alias, cmdArgs, &quitReq),
 			tea.WithAltScreen())
 		go func() { _, _ = program.Run() }() //nolint:errcheck
 	}
 
 	go func() {
+		// Split on bare CR as well as LF: dev-server progress bars
+		// (webpack/nuxt) redraw one line with carriage returns, and a
+		// plain LF scanner would swallow every update until the bar
+		// finishes. The redraw flag tells the TUI to replace the last
+		// line instead of appending.
 		scanner := bufio.NewScanner(ptyFile)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		scanner.Split(splitOnCROrLF)
 		for scanner.Scan() {
+			raw := scanner.Text()
+			_, redraw := sanitizeLogLine(raw)
 			if program != nil {
-				program.Send(logLineMsg(scanner.Text()))
+				program.Send(logLineMsg{line: raw, redraw: redraw})
+			} else if redraw {
+				// Let a real terminal do the in-place overwrite.
+				fmt.Fprintf(os.Stdout, "\r%s\n", raw)
 			} else {
-				fmt.Fprintln(os.Stdout, scanner.Text())
+				fmt.Fprintln(os.Stdout, raw)
 			}
-			if port := listenPortFromLine(scanner.Text()); port > 0 {
+			if port := listenPortFromLine(raw); port > 0 {
 				select {
 				case portCh <- port:
 				default:
@@ -321,4 +336,23 @@ func probeAlias(alias string) string {
 func init() {
 	devFlags.Timeout = devCmd.Flags().Int("timeout", 60, "seconds to wait for the command to print a listening port")
 	Command.AddCommand(devCmd)
+}
+
+// splitOnCROrLF is a bufio.SplitFunc that terminates tokens on '\r' or
+// '\n' (treating CRLF as one), so carriage-return progress redraws reach
+// the handler as separate chunks.
+func splitOnCROrLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	for i, b := range data {
+		if b == '\r' || b == '\n' {
+			end := i + 1
+			if b == '\r' && i+1 < len(data) && data[i+1] == '\n' {
+				end++
+			}
+			return end, data[:i], nil
+		}
+	}
+	if atEOF && len(data) > 0 {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
 }

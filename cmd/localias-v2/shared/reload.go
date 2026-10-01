@@ -11,6 +11,11 @@ import (
 	"github.com/kimura-apg/localias-v2/pkg/daemon"
 )
 
+// Quiet suppresses the informational prints (e.g. "[daemon reloaded]")
+// while another renderer owns the terminal — the `dev` TUI sets it, since
+// plain prints corrupt the alt-screen layout.
+var Quiet bool //nolint:gochecknoglobals
+
 // ReloadIfRunning restarts the localias daemon so config changes made by
 // mutating commands (`set`, `rm`, `clear`, `import`, `dev`) take effect
 // immediately. If no daemon is running, one is started — an alias nobody
@@ -43,9 +48,11 @@ func ReloadIfRunning() {
 		))
 		return
 	}
-	if running != nil {
-		fmt.Println("[daemon reloaded]")
-	} else {
-		fmt.Println("[daemon started]")
+	if !Quiet {
+		if running != nil {
+			fmt.Println("[daemon reloaded]")
+		} else {
+			fmt.Println("[daemon started]")
+		}
 	}
 }
