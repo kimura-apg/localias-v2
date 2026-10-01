@@ -51,9 +51,12 @@ localias dev https://app.test -- python3 -m http.server
 
 // Patterns printed by common dev servers when they start listening:
 // vite/bun/next print "localhost:5173" or "0.0.0.0:3000",
+// nuxt prints "Listening on: http://192.168.1.8:8924/" (LAN IP),
 // python http.server prints "Serving HTTP on 0.0.0.0 port 8000".
 var listenPatterns = []*regexp.Regexp{ //nolint:gochecknoglobals
 	regexp.MustCompile(`(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]|0:0:0:0:0:0:0:1):(\d{2,5})`),
+	regexp.MustCompile(`https?://[^/\s]+:(\d{2,5})`),
+	regexp.MustCompile(`(?:\d{1,3}\.){3}\d{1,3}:(\d{2,5})`),
 	regexp.MustCompile(`port (\d{2,5})`),
 }
 

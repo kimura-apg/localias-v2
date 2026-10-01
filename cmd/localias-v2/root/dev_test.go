@@ -13,6 +13,8 @@ func TestFirstListenPort(t *testing.T) {
 	check.Equal(t, 8080, FirstListenPort("Server running at http://0.0.0.0:8080"))
 	check.Equal(t, 8000, FirstListenPort("Serving HTTP on 0.0.0.0 port 8000 (http://0.0.0.0:8000/) ..."))
 	check.Equal(t, 3437, FirstListenPort("listening on [::1]:3437"))
+	check.Equal(t, 8924, FirstListenPort("ℹ Listening on: http://192.168.1.8:8924/"))
+	check.Equal(t, 0, FirstListenPort("Sentry reporting is enabled (client side: enabled)"))
 	check.Equal(t, 0, FirstListenPort("no ports here"))
 	check.Equal(t, 0, FirstListenPort("version 1.2.3 of something"))
 }
