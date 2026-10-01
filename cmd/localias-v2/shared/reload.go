@@ -2,7 +2,9 @@ package shared
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 
 	"github.com/fatih/color"
 
@@ -21,7 +23,19 @@ func ReloadIfRunning() {
 	if err != nil {
 		return
 	}
-	if err := daemon.Start(Config()); err != nil {
+	// Restart via a subprocess. Calling daemon.Start in-process is
+	// dangerous for arbitrary commands: go-daemon re-execs THIS binary
+	// with the SAME arguments, so e.g. `localias dev -- yarn dev` would
+	// fork a daemon that starts re-running the wrapped dev server.
+	// `localias start` in a child process keeps the re-exec harmless.
+	args := []string{"start"}
+	if Flags.Configfile != nil && *Flags.Configfile != "" {
+		args = append(args, "--configfile", *Flags.Configfile)
+	}
+	cmd := exec.Command(os.Args[0], args...)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	if err := cmd.Run(); err != nil {
 		warn := color.New(color.FgYellow, color.Italic)
 		fmt.Fprintln(os.Stderr, warn.Sprintf(
 			"warning: config saved but the daemon could not be (re)started (%v); run `localias start` to apply",

@@ -9,7 +9,6 @@ import (
 	"os/signal"
 	"regexp"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -123,10 +122,7 @@ func devImpl(_ *cobra.Command, args []string) error {
 	defer ptyFile.Close() //nolint:errcheck
 
 	portCh := make(chan int, 1)
-	var wg sync.WaitGroup
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		scanner := bufio.NewScanner(ptyFile)
 		for scanner.Scan() {
 			// Pass the child's output through to the user's terminal
@@ -180,16 +176,39 @@ func devImpl(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("timed out after %ds waiting for %v to print a listening port", timeout, cmdArgs)
 	}
 
-	// Forward Ctrl-C to the child and wait for it.
+	// Forward Ctrl-C to the child. Signaling only child.Process would miss the
+	// grandchildren (yarn -> node -> nuxt); instead write the INTR control
+	// character to the pty master — the line discipline delivers SIGINT to the
+	// child's whole foreground process group, exactly like a real terminal —
+	// and escalate to SIGKILL on the group if it does not exit in time.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	stopDone := make(chan struct{})
 	go func() {
-		for range sigCh {
-			_ = child.Process.Signal(os.Interrupt)
+		for {
+			select {
+			case <-sigCh:
+				fmt.Println("[dev] interrupt; stopping child...")
+				_, _ = ptyFile.Write([]byte{0x03})
+				go func() {
+					select {
+					case <-time.After(5 * time.Second):
+						fmt.Println("[dev] child did not exit; killing process group")
+						_ = syscall.Kill(-child.Process.Pid, syscall.SIGKILL)
+					case <-stopDone:
+					}
+				}()
+			case <-stopDone:
+				return
+			}
 		}
 	}()
 	err = <-waitCh
+	close(stopDone)
 	close(sigCh)
+	// Best-effort close of the pty master; the scanner goroutine dies with
+	// the process (close does not unblock a blocked read on macOS).
+	_ = ptyFile.Close()
 
 	// Remove the alias again, best-effort.
 	if registered {
@@ -202,7 +221,6 @@ func devImpl(_ *cobra.Command, args []string) error {
 		}
 		shared.ReloadIfRunning()
 	}
-	wg.Wait()
 	if err != nil {
 		return err
 	}
