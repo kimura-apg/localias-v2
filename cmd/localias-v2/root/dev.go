@@ -125,7 +125,14 @@ func devImpl(_ *cobra.Command, args []string) error {
 		defer wg.Done()
 		scanner := bufio.NewScanner(pr)
 		for scanner.Scan() {
-			if port := FirstListenPort(scanner.Text()); port > 0 {
+			line := scanner.Text()
+			// A port mentioned in an "already in use" warning is NOT the
+			// port this process is listening on (nuxt e.g. falls back to a
+			// random one right after) — never register it.
+			if strings.Contains(line, "already in use") {
+				continue
+			}
+			if port := FirstListenPort(line); port > 0 {
 				select {
 				case portCh <- port:
 				default:
@@ -151,11 +158,17 @@ func devImpl(_ *cobra.Command, args []string) error {
 		fmt.Printf("[dev] %s -> 127.0.0.1:%d\n", alias, port)
 		shared.ReloadIfRunning()
 	case err := <-waitCh:
+		_ = child.Process.Kill()
+		<-waitCh
 		if err != nil {
 			return fmt.Errorf("command exited before listening: %w", err)
 		}
 		return fmt.Errorf("command exited before printing a listening port")
 	case <-timeAfter(time.Duration(timeout) * time.Second):
+		// Kill the child so an orphaned dev server doesn't keep holding
+		// the port a retry would want.
+		_ = child.Process.Kill()
+		<-waitCh
 		return fmt.Errorf("timed out after %ds waiting for %v to print a listening port", timeout, cmdArgs)
 	}
 
