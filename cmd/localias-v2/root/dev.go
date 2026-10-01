@@ -77,29 +77,32 @@ func FirstListenPort(line string) int {
 	return 0
 }
 
-func devImpl(_ *cobra.Command, args []string) error {
-	// Split on the first "--" separator: left = alias, right = command.
-	// (pflag may strip the separator itself when parsing flags, so also
-	// accept the flag-terminator form Args() already split.)
-	alias := args[0]
-	cmdArgs := args[1:]
+// parseDevArgs validates and normalizes the arguments of `localias dev`:
+// alias (defaults to http://) before the first "--", command after it.
+// Extracted from devImpl so the argument contract is unit-testable.
+func parseDevArgs(args []string) (alias string, cmdArgs []string, err error) {
+	if len(args) < 2 {
+		return "", nil, fmt.Errorf("invalid arguments: expected <alias> -- <command>")
+	}
+	alias = args[0]
+	cmdArgs = args[1:]
 	for i, a := range args {
 		if a == "--" {
 			if i == 0 {
-				return fmt.Errorf("invalid arguments: expected <alias> before \"--\" (usage: localias dev <alias> -- <command>)")
+				return "", nil, fmt.Errorf("invalid arguments: expected <alias> before \"--\" (usage: localias dev <alias> -- <command>)")
 			}
 			cmdArgs = args[i+1:]
 			break
 		}
 	}
 	if len(cmdArgs) == 0 {
-		return fmt.Errorf("invalid arguments: expected <alias> -- <command>")
+		return "", nil, fmt.Errorf("invalid arguments: expected <alias> -- <command>")
 	}
 	// A missing alias usually surfaces as the command's name in the alias
 	// slot (e.g. "dev -- yarn dev" -> alias "yarn"): aliases always contain
 	// a dot (host.tld), so catch that with a targeted hint.
 	if !strings.Contains(alias, ".") {
-		return fmt.Errorf(
+		return "", nil, fmt.Errorf(
 			"invalid alias %q: did you forget the alias before \"--\"? usage: localias dev <alias> -- <command>",
 			alias,
 		)
@@ -108,6 +111,27 @@ func devImpl(_ *cobra.Command, args []string) error {
 		alias = "http://" + alias
 	}
 	if err := config.ValidateAlias(alias); err != nil {
+		return "", nil, err
+	}
+	return alias, cmdArgs, nil
+}
+
+// listenPortFromLine decides whether an output line of the wrapped command
+// advertises the port we should register: ANSI escapes are stripped, and
+// lines mentioning "already in use" are ignored — the port they mention is
+// NOT the one this process ended up listening on (nuxt e.g. falls back to a
+// random one right after such a warning).
+func listenPortFromLine(raw string) int {
+	line := ansiPattern.ReplaceAllString(raw, "")
+	if strings.Contains(line, "already in use") {
+		return 0
+	}
+	return FirstListenPort(line)
+}
+
+func devImpl(_ *cobra.Command, args []string) error {
+	alias, cmdArgs, err := parseDevArgs(args)
+	if err != nil {
 		return err
 	}
 
@@ -126,16 +150,9 @@ func devImpl(_ *cobra.Command, args []string) error {
 		scanner := bufio.NewScanner(ptyFile)
 		for scanner.Scan() {
 			// Pass the child's output through to the user's terminal
-			// (raw line — colors intact); strip ANSI only for matching.
+			// (raw line — colors intact); matching strips ANSI internally.
 			fmt.Fprintln(os.Stdout, scanner.Text())
-			line := ansiPattern.ReplaceAllString(scanner.Text(), "")
-			// A port mentioned in an "already in use" warning is NOT the
-			// port this process is listening on (nuxt e.g. falls back to a
-			// random one right after) — never register it.
-			if strings.Contains(line, "already in use") {
-				continue
-			}
-			if port := FirstListenPort(line); port > 0 {
+			if port := listenPortFromLine(scanner.Text()); port > 0 {
 				select {
 				case portCh <- port:
 				default:
