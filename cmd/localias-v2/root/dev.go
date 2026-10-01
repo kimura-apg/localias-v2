@@ -12,8 +12,10 @@ import (
 	"syscall"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/creack/pty"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/kimura-apg/localias-v2/cmd/localias-v2/shared"
 	"github.com/kimura-apg/localias-v2/pkg/config"
@@ -146,12 +148,25 @@ func devImpl(_ *cobra.Command, args []string) error {
 	defer ptyFile.Close() //nolint:errcheck
 
 	portCh := make(chan int, 1)
+	interactive := isTerminal(os.Stdout)
+
+	// Lines feed either the TUI (via program.Send) or plain stdout.
+	var program *tea.Program
+	quitReq := make(chan struct{})
+	if interactive {
+		program = tea.NewProgram(newDevModel(alias, cmdArgs, &quitReq),
+			tea.WithAltScreen())
+		go func() { _, _ = program.Run() }() //nolint:errcheck
+	}
+
 	go func() {
 		scanner := bufio.NewScanner(ptyFile)
 		for scanner.Scan() {
-			// Pass the child's output through to the user's terminal
-			// (raw line — colors intact); matching strips ANSI internally.
-			fmt.Fprintln(os.Stdout, scanner.Text())
+			if program != nil {
+				program.Send(logLineMsg(scanner.Text()))
+			} else {
+				fmt.Fprintln(os.Stdout, scanner.Text())
+			}
 			if port := listenPortFromLine(scanner.Text()); port > 0 {
 				select {
 				case portCh <- port:
@@ -162,11 +177,19 @@ func devImpl(_ *cobra.Command, args []string) error {
 	}()
 
 	waitCh := make(chan error, 1)
-	go func() { waitCh <- child.Wait() }()
+	go func() {
+		err := child.Wait()
+		if program != nil {
+			program.Send(childExitMsg{err: err})
+		}
+		waitCh <- err
+	}()
 
 	timeout := *devFlags.Timeout
 	var registered bool
-	fmt.Printf("[dev] waiting for %v to print a listening port (timeout %ds)...\n", cmdArgs, timeout)
+	if !interactive {
+		fmt.Printf("[dev] waiting for %v to print a listening port (timeout %ds)...\n", cmdArgs, timeout)
+	}
 	select {
 	case port := <-portCh:
 		cfg := shared.Config()
@@ -175,9 +198,16 @@ func devImpl(_ *cobra.Command, args []string) error {
 			return err
 		}
 		registered = true
-		fmt.Printf("[dev] alias registered: %s -> 127.0.0.1:%d\n", alias, port)
+		detail := probeAlias(alias)
+		if program != nil {
+			program.Send(statusMsg{port: port, detail: detail})
+		} else {
+			fmt.Printf("[dev] alias registered: %s -> 127.0.0.1:%d\n", alias, port)
+		}
 		shared.ReloadIfRunning()
-		logReady(alias)
+		if !interactive {
+			fmt.Printf("[dev] ready: %s (%s)\n", alias, detail)
+		}
 	case err := <-waitCh:
 		_ = child.Process.Kill()
 		<-waitCh
@@ -193,39 +223,61 @@ func devImpl(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("timed out after %ds waiting for %v to print a listening port", timeout, cmdArgs)
 	}
 
-	// Forward Ctrl-C to the child. Signaling only child.Process would miss the
-	// grandchildren (yarn -> node -> nuxt); instead write the INTR control
-	// character to the pty master — the line discipline delivers SIGINT to the
-	// child's whole foreground process group, exactly like a real terminal —
-	// and escalate to SIGKILL on the group if it does not exit in time.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	stopDone := make(chan struct{})
-	go func() {
-		for {
+	// Wait until the user quits the TUI (or the child exits on its own /
+	// a signal arrives). In non-interactive mode this returns as soon as
+	// the child exits.
+	shutdown := func() {
+		// Deliver Ctrl-C on the child's pty so its whole process tree
+		// gets SIGINT, exactly like a real terminal, with SIGKILL
+		// escalation on the group after a grace period.
+		_, _ = ptyFile.Write([]byte{0x03})
+		select {
+		case <-waitCh:
+		case <-time.After(5 * time.Second):
+			_ = syscall.Kill(-child.Process.Pid, syscall.SIGKILL)
+			<-waitCh
+		}
+	}
+	if interactive {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+		done := make(chan struct{})
+		go func() {
 			select {
 			case <-sigCh:
-				fmt.Println("[dev] interrupt; stopping child...")
-				_, _ = ptyFile.Write([]byte{0x03})
-				go func() {
-					select {
-					case <-time.After(5 * time.Second):
-						fmt.Println("[dev] child did not exit; killing process group")
-						_ = syscall.Kill(-child.Process.Pid, syscall.SIGKILL)
-					case <-stopDone:
-					}
-				}()
-			case <-stopDone:
-				return
+				shutdown()
+				program.Send(childExitMsg{})
+			case <-quitReq: // user pressed q / ctrl+c in the TUI
+				shutdown()
+			case <-waitCh: // child died on its own
+			}
+			close(done)
+		}()
+		<-done
+		signal.Stop(sigCh)
+		if program != nil {
+			program.Quit()
+		_programWait:
+			for {
+				select {
+				case <-waitCh:
+					break _programWait
+				case <-time.After(2 * time.Second):
+					break _programWait
+				}
 			}
 		}
-	}()
-	err = <-waitCh
-	close(stopDone)
-	close(sigCh)
-	// Best-effort close of the pty master; the scanner goroutine dies with
-	// the process (close does not unblock a blocked read on macOS).
-	_ = ptyFile.Close()
+	} else {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+		go func() {
+			for range sigCh {
+				shutdown()
+			}
+		}()
+		<-waitCh
+		signal.Stop(sigCh)
+	}
 
 	// Remove the alias again, best-effort.
 	if registered {
@@ -238,28 +290,32 @@ func devImpl(_ *cobra.Command, args []string) error {
 		}
 		shared.ReloadIfRunning()
 	}
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
-// logReady probes the alias through the local proxy so the user gets a
-// definitive "it works now" line (or an early warning that routing or the
-// upstream is not answering yet).
-func logReady(alias string) {
+// isTerminal reports whether the given file is attached to a terminal.
+func isTerminal(f *os.File) bool {
+	_, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return term.IsTerminal(int(f.Fd()))
+}
+
+// probeAlias does a best-effort GET against the alias through the local
+// proxy and describes the outcome for status displays.
+func probeAlias(alias string) string {
 	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequest(http.MethodGet, alias, nil)
 	if err != nil {
-		return
+		return ""
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("[dev] warning: could not reach %s yet (%v)\n", alias, err)
-		return
+		return fmt.Sprintf("not reachable yet: %v", err)
 	}
 	resp.Body.Close() //nolint:errcheck
-	fmt.Printf("[dev] ready: %s (upstream answered %s)\n", alias, resp.Status)
+	return fmt.Sprintf("ready: upstream answered %s", resp.Status)
 }
 
 func init() {
