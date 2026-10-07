@@ -16,7 +16,7 @@ if ! upload_url=$(
   gh api --method POST 'repos/{owner}/{repo}/releases' \
     -F "tag_name=$release_name" \
     -F "name=$release_name" \
-    -F "target_comitish=$commit_sha" \
+    -F "target_committish=$commit_sha" \
     --jq '.upload_url' \
 ); then 
   if ! upload_url=$(

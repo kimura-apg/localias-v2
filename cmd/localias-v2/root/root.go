@@ -37,6 +37,8 @@ localias reload
 localias stop
 # Run the proxy server in the foreground
 localias run
+# Enable the resident (launchd) proxy service on macOS
+localias daemon on
   `),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) != 0 {

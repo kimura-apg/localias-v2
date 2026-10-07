@@ -258,6 +258,20 @@ localias set frontend.test 4004
 localias reload
 ```
 
+### Resident service (macOS)
+
+On macOS you can keep the proxy running permanently via a LaunchAgent: it
+starts at login and is automatically restarted by launchd if it crashes.
+
+```shell
+# Install and start the resident service
+localias daemon on
+# Show whether the resident service is enabled
+localias daemon status
+# Stop and uninstall the resident service
+localias daemon off
+```
+
 # Using the CLI 
 
 `localias` has many different subcommands, each of which is documented
